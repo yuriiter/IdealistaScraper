@@ -1,4 +1,4 @@
-name: "Sicily Test"
+name: "Sicily Buy"
 transaction_type: "buy"
 # The 9 provinces of Sicily
 provinces:

@@ -1,0 +1,16 @@
+name: "Sicily Rent"
+transaction_type: "rent-room"
+# The 9 provinces of Sicily
+provinces:
+  - agrigento
+  # - caltanissetta
+  # - catania
+  # - enna
+  # - messina
+  # - palermo
+  # - ragusa
+  # - siracusa
+  # - trapani
+# Filter: Max 14k Euro, Good condition, Houses/Villas (no garages/land)
+url_filters: "con-prezzo_250,prezzo-min_100,affitto-lungo-termine"
+deep_scrape: true

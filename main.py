@@ -14,7 +14,7 @@ from seleniumbase import SB
 
 # --- CONFIGURATION ---
 USER_DATA_DIR = os.path.join(os.getcwd(), "idealista_profile")
-TRANSACTION_MAP = {"buy": "vendita-case", "rent": "affitto-case"}
+TRANSACTION_MAP = {"buy": "vendita-case", "rent-flat": "affitto-case", "rent-room": "affito-stanze"}
 
 def get_timestamp():
     return datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
