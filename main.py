@@ -5,140 +5,226 @@ import yaml
 import sys
 import csv
 import random
+import requests
+import datetime
+import re
+import json
+from bs4 import BeautifulSoup
 from seleniumbase import SB
 
 # --- CONFIGURATION ---
 USER_DATA_DIR = os.path.join(os.getcwd(), "idealista_profile")
+TRANSACTION_MAP = {"buy": "vendita-case", "rent": "affitto-case"}
 
-TRANSACTION_MAP = {
-    "buy": "vendita-case",
-    "rent": "affitto-case"
-}
+def get_timestamp():
+    return datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
 
-# --- PARSING LOGIC ---
+def download_listing_images(image_urls, listing_id, base_img_folder):
+    listing_folder = os.path.join(base_img_folder, str(listing_id))
+    os.makedirs(listing_folder, exist_ok=True)
+    
+    saved_paths =[]
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    }
 
-def extract_card_data(article):
-    """Basic data visible from the search results page."""
+    for i, url in enumerate(image_urls[:15]):
+        try:
+            target_url = url.replace("WEB_DETAIL-M-L", "WEB_DETAIL")
+            response = requests.get(target_url, headers=headers, timeout=10)
+            if response.status_code == 200:
+                file_name = f"{i+1}.jpg"
+                path = os.path.join(listing_folder, file_name)
+                with open(path, "wb") as f:
+                    f.write(response.content)
+                saved_paths.append(f"images/{listing_id}/{file_name}")
+            time.sleep(random.uniform(0.3, 0.8))
+        except Exception as e:
+            print(f"      ⚠️ Image {i} failed for {listing_id}: {e}")
+            
+    return f"images/{listing_id}/"
+
+# --- PARSING LOGIC (NOW USING BEAUTIFULSOUP) ---
+
+def extract_card_data(article_soup):
     try:
-        item_id = article.get_attribute("data-element-id")
-        link_element = article.find_element("css selector", ".item-link")
-        price = article.find_element("css selector", ".item-price").text.strip()
+        item_id = article_soup.get("data-element-id")
+        if not item_id: return None
         
+        link_el = article_soup.select_one(".item-link")
+        title = link_el.text.strip() if link_el else ""
+        url = link_el.get("href") if link_el else ""
+        
+        # Ensure URL is complete
+        if url and not url.startswith("http"):
+            url = "https://www.idealista.it" + url
+            
+        img_el = article_soup.select_one("picture img")
+        thumb = img_el.get("src") if img_el else ""
+        
+        price_el = article_soup.select_one(".item-price")
+        price = price_el.text.strip() if price_el else ""
+        
+        rooms = ""
+        size = ""
+        details = article_soup.select(".item-detail")
+        if details:
+            if len(details) > 0: rooms = details[0].text.strip()
+            if len(details) > 1: size = details[1].text.strip()
+
         return {
             "id": item_id,
-            "title": link_element.text.strip(),
-            "url": link_element.get_attribute("href"),
+            "title": title,
+            "url": url,
             "price": price,
-            "rooms": article.find_elements("css selector", ".item-detail")[0].text if article.find_elements("css selector", ".item-detail") else "",
-            "size": article.find_elements("css selector", ".item-detail")[1].text if len(article.find_elements("css selector", ".item-detail")) > 1 else "",
+            "rooms": rooms,
+            "size": size,
+            "main_image_url": thumb
         }
-    except:
+    except Exception as e:
+        print(f"      ⚠️ Extract card error: {e}")
         return None
 
-def extract_detail_data(sb):
-    """Deep data extracted from the individual property page."""
-    details = {}
+def extract_deep_details(html_source):
+    details = {
+        "full_description": "",
+        "all_features": "",
+        "image_urls":[]
+    }
     try:
-        # 1. Get the full description
-        details['full_description'] = sb.get_text(".adCommentsLanguage p")
+        soup = BeautifulSoup(html_source, "html.parser")
         
-        # 2. Get features (The list items from your HTML)
-        # We look for all <li> inside the features boxes
-        feature_elements = sb.find_elements("css selector", ".details-property_features ul li")
-        features_text = [el.text.strip() for p in feature_elements]
-        details['all_features'] = " | ".join(features_text)
+        desc_el = soup.select_one(".adCommentsLanguage p")
+        if desc_el:
+            details['full_description'] = desc_el.text.strip()
+            
+        feature_elements = soup.select(".details-property_features ul li")
+        feats = [el.text.strip() for el in feature_elements]
+        details['all_features'] = " | ".join(feats)
 
-        # 3. Specifics (Logic based on common strings in the list)
-        for f in features_text:
-            if "built" in f.lower() or "costruito" in f.lower():
-                details['year_built'] = f
-            if "floor" in f.lower() or "piano" in f.lower():
-                details['floor'] = f
-            if "heating" in f.lower() or "riscaldamento" in f.lower():
-                details['heating'] = f
-        
-        # 4. Energy Rating
-        try:
-            energy = sb.get_attribute(".details-property_features span[class*='icon-energy']", "class")
-            details['energy_rating'] = energy.split('-')[-2].upper() if energy else "N/A"
-        except:
-            details['energy_rating'] = "Unknown"
-
+        # IMAGE EXTRACTION (Regex Bypass)
+        # We grab the JS block and pluck out the image URLs directly, 
+        # bypassing json.loads() since it's a JS object, not valid JSON.
+        pattern = re.compile(r"var adMultimediasInfo = (\{.*?\});", re.DOTALL)
+        match = pattern.search(html_source)
+        if match:
+            js_block = match.group(1)
+            
+            # Find all strings mapped to imageDataService (with or without quotes around the key)
+            urls = re.findall(r'imageDataService["\']?\s*:\s*["\']([^"\']+)["\']', js_block)
+            
+            # Fallback just in case Idealista changes the key name but keeps the URL structure
+            if not urls:
+                urls = re.findall(r'["\']?(https://img\d\.idealista\.it/[^"\']+(?:jpg|webp))["\']?', js_block)
+            
+            # Deduplicate the list while preserving order
+            clean_urls =[]
+            for u in urls:
+                if u not in clean_urls:
+                    clean_urls.append(u)
+                    
+            details['image_urls'] = clean_urls
+            
     except Exception as e:
-        print(f"   Warning: Could not parse all details: {e}")
-    
+        print(f"      ⚠️ Deep parse error: {e}")
     return details
+# --- MAIN ENGINE ---
 
-# --- MAIN SCRAPER ENGINE ---
+def run_system(urls, scenario_name, deep_scrape=False):
+    root_folder = os.path.join("scraped_data", f"{scenario_name}_{get_timestamp()}")
+    img_root = os.path.join(root_folder, "images")
+    os.makedirs(img_root, exist_ok=True)
+    csv_path = os.path.join(root_folder, "listings.csv")
 
-def run_system(urls, deep_scrape=False):
     with SB(uc=True, user_data_dir=USER_DATA_DIR, browser="chrome") as sb:
+        cdp_active = False
+
         for start_url in urls:
             current_url = start_url
-            
             while current_url:
-                print(f"\n🌐 Navigating to Page: {current_url}")
-                sb.activate_cdp_mode(current_url)
+                print(f"\n🌐 Search Page: {current_url}")
                 
-                # Randomized Defensive Sleep
-                time.sleep(random.uniform(5, 10))
+                # Activate CDP Mode exactly once. Use native CDP sb.open() afterwards.
+                if not cdp_active:
+                    sb.activate_cdp_mode(current_url)
+                    cdp_active = True
+                else:
+                    sb.open(current_url)
+                    
+                time.sleep(random.uniform(7, 12))
                 
-                if "datadome" in sb.get_page_source().lower():
-                    print("🚨 CAPTCHA! Solve it to continue...")
-                    while "datadome" in sb.get_page_source().lower(): time.sleep(2)
+                html_source = sb.get_page_source()
+                
+                if "geo.captcha-delivery.com" in html_source.lower():
+                    print("🚨 CAPTCHA DETECTED! Solve it now.")
+                    while "geo.captcha-delivery.com" in sb.get_page_source().lower(): 
+                        time.sleep(2)
+                        
+                    # Re-grab source after captcha is solved
+                    html_source = sb.get_page_source()
 
-                # Get all cards on page
-                cards = sb.find_elements("css selector", "article.item")
-                page_listings = []
+                # Parse the page with BeautifulSoup
+                soup = BeautifulSoup(html_source, "html.parser")
+                cards = soup.select("article.item")
+                print(f"   --> Found {len(cards)} listing cards on page.")
+                
+                page_data_list =[]
 
+                # Grab the Next Page URL safely
+                next_btn = soup.select_one(".pagination li.next a")
+                if next_btn:
+                    next_url = next_btn.get("href")
+                    if next_url and not next_url.startswith("http"):
+                        next_url = "https://www.idealista.it" + next_url
+                else:
+                    next_url = None
+
+                # Extract basic data using Soup elements
                 for card in cards:
-                    basic_info = extract_card_data(card)
-                    if not basic_info: continue
-                    
-                    if deep_scrape:
-                        print(f"   🔎 Deep Scraping: {basic_info['id']}")
-                        # Open detail in NEW tab to keep the search page alive (safer)
-                        sb.execute_script(f"window.open('{basic_info['url']}','_blank');")
-                        sb.switch_to_window(1)
-                        time.sleep(random.uniform(4, 8)) # Detail page sleep
-                        
-                        deep_info = extract_detail_data(sb)
-                        basic_info.update(deep_info)
-                        
-                        sb.driver.close()
-                        sb.switch_to_window(0)
-                        # Randomized delay between items
-                        time.sleep(random.uniform(2, 5))
-                    
-                    page_listings.append(basic_info)
+                    item = extract_card_data(card)
+                    if item:
+                        page_data_list.append(item)
 
-                # Save page results
-                if page_listings:
-                    file_exists = os.path.isfile("listings.csv")
-                    with open("listings.csv", "a", newline='', encoding='utf-8') as f:
-                        writer = csv.DictWriter(f, fieldnames=page_listings[0].keys())
+                # Deep Scrape sequentially
+                if deep_scrape and page_data_list:
+                    for item in page_data_list:
+                        print(f"   🔎 Deep Scrape: {item['id']}")
+                        sb.open(item['url'])
+                        time.sleep(random.uniform(5, 8))
+                        
+                        deep_html = sb.get_page_source()
+                        deep_info = extract_deep_details(deep_html)
+                        
+                        item['description'] = deep_info['full_description']
+                        item['all_features'] = deep_info['all_features']
+                        
+                        if deep_info['image_urls']:
+                            item['images_folder'] = download_listing_images(
+                                deep_info['image_urls'], item['id'], img_root
+                            )
+                        item.pop('main_image_url', None)
+                elif not deep_scrape and page_data_list:
+                    for item in page_data_list:
+                        if item.get('main_image_url'):
+                            item['images_folder'] = download_listing_images(
+                                [item['main_image_url']], item['id'], img_root
+                            )
+                        item.pop('main_image_url', None)
+
+                # Save Batch
+                if page_data_list:
+                    file_exists = os.path.isfile(csv_path)
+                    with open(csv_path, "a", newline='', encoding='utf-8') as f:
+                        writer = csv.DictWriter(f, fieldnames=page_data_list[0].keys())
                         if not file_exists: writer.writeheader()
-                        writer.writerows(page_listings)
-                    print(f"✅ Saved {len(page_listings)} items.")
+                        writer.writerows(page_data_list)
+                    print(f"✅ Saved {len(page_data_list)} listings.")
 
-                # Pagination
-                try:
-                    next_btn = sb.find_element("css selector", ".pagination li.next a", timeout=3)
-                    current_url = next_btn.get_attribute("href")
-                    print("➡️ Moving to next page...")
-                except:
-                    print("🏁 End of province.")
-                    current_url = None
-            
-            # Massive sleep between provinces
-            print("💤 Province complete. Cooling down...")
-            time.sleep(random.uniform(20, 40))
+                current_url = next_url 
 
-# --- CLI & UTILS ---
+            time.sleep(random.uniform(30, 60))
 
-def load_provinces():
-    with open("provinces.txt", "r") as f:
-        return [l.strip().lower() for l in f if l.strip()]
+# --- CLI & SETUP ---
 
 def main():
     parser = argparse.ArgumentParser()
@@ -147,21 +233,20 @@ def main():
 
     with open(args.config, "r") as f:
         conf = yaml.safe_load(f)
-
+    
     tx_path = TRANSACTION_MAP.get(conf.get('transaction_type', 'buy'), "vendita-case")
     filters = conf.get("url_filters", "").strip("/")
     
-    prov_list = load_provinces() if conf.get('provinces') == 'all' else conf.get('provinces', [])
-    
-    generated_urls = [
-        f"https://www.idealista.it/en/{tx_path}/{p}-provincia/{filters}/" 
-        for p in prov_list
-    ]
+    if conf.get('provinces') == 'all':
+        with open("provinces.txt", "r") as f:
+            prov_list =[l.strip().lower() for l in f if l.strip()]
+    else:
+        prov_list = conf.get('provinces', [])
 
-    print(f"🚀 Starting Scenario: {conf['name']}")
-    print(f"🛠 Deep Scrape Mode: {conf.get('deep_scrape', False)}")
+    urls =[f"https://www.idealista.it/{tx_path}/{p}-provincia/{filters}/" for p in prov_list]
+    scenario_filename = os.path.splitext(os.path.basename(args.config))[0]
     
-    run_system(generated_urls, deep_scrape=conf.get('deep_scrape', False))
+    run_system(urls, scenario_filename, deep_scrape=conf.get('deep_scrape', False))
 
 if __name__ == "__main__":
     main()

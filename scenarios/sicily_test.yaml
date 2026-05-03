@@ -1,0 +1,16 @@
+name: "Sicily Test"
+transaction_type: "buy"
+# The 9 provinces of Sicily
+provinces:
+  - agrigento
+  # - caltanissetta
+  # - catania
+  # - enna
+  # - messina
+  # - palermo
+  # - ragusa
+  # - siracusa
+  # - trapani
+# Filter: Max 14k Euro, Good condition, Houses/Villas (no garages/land)
+url_filters: "con-prezzo_10000,prezzo-min_8000,nuova-costruzione,buono-stato,aste_no,senza-inquilini"
+deep_scrape: true
