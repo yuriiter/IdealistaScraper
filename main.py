@@ -14,7 +14,7 @@ from seleniumbase import SB
 
 # --- CONFIGURATION ---
 USER_DATA_DIR = os.path.join(os.getcwd(), "idealista_profile")
-TRANSACTION_MAP = {"buy": "vendita-case", "rent-flat": "affitto-case", "rent-room": "affito-stanze"}
+TRANSACTION_MAP = {"buy": "vendita-case", "rent-flat": "affitto-case", "rent-room": "affitto-stanze"}
 
 def get_timestamp():
     return datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
@@ -89,35 +89,73 @@ def extract_deep_details(html_source):
     details = {
         "full_description": "",
         "all_features": "",
+        "address": "",
+        "advertiser_type": "",
+        "advertiser_name": "",
+        "last_updated": "",
+        "latitude": "",
+        "longitude": "",
+        "phone": "",
         "image_urls":[]
     }
     try:
         soup = BeautifulSoup(html_source, "html.parser")
         
+        # 1. Description
         desc_el = soup.select_one(".adCommentsLanguage p")
         if desc_el:
             details['full_description'] = desc_el.text.strip()
             
+        # 2. Features
         feature_elements = soup.select(".details-property_features ul li")
-        feats = [el.text.strip() for el in feature_elements]
+        feats =[el.text.strip() for el in feature_elements if el.text.strip()]
         details['all_features'] = " | ".join(feats)
 
-        # IMAGE EXTRACTION (Regex Bypass)
-        # We grab the JS block and pluck out the image URLs directly, 
-        # bypassing json.loads() since it's a JS object, not valid JSON.
+        # 3. Full Address
+        address_elements = soup.select(".header-map-list")
+        if address_elements:
+            details['address'] = " - ".join([el.text.strip() for el in address_elements if el.text.strip()])
+
+        # 4. Advertiser Type (Private vs Agency)
+        adv_type_el = soup.select_one(".professional-name .name")
+        if adv_type_el:
+            details['advertiser_type'] = adv_type_el.text.strip()
+
+        # 5. Advertiser Name
+        adv_name_el = soup.select_one(".advertiser-name")
+        if adv_name_el:
+            details['advertiser_name'] = adv_name_el.text.strip()
+
+        # 6. Last Updated Date
+        updated_el = soup.select_one(".time-since-last-modification")
+        if updated_el:
+            details['last_updated'] = updated_el.text.strip()
+
+        # 7. Coordinates (Regex trick to pull lat/lng from the static map URL)
+        coord_match = re.search(r'center=([\d\.\-]+)(?:%2C|,)([\d\.\-]+)', html_source)
+        if coord_match:
+            details['latitude'] = coord_match.group(1)
+            details['longitude'] = coord_match.group(2)
+
+        # 8. Phone Number (Extracted after click)
+        phone_els = soup.select(".hidden-contact-phones_text, a[href^='tel:']")
+        for el in phone_els:
+            txt = el.text.strip()
+            # If it contains digits and isn't the Idealista support number
+            if any(char.isdigit() for char in txt) and "02 36" not in txt and "0236" not in txt:
+                details['phone'] = txt
+                break
+
+        # 9. IMAGE EXTRACTION (Regex Bypass)
         pattern = re.compile(r"var adMultimediasInfo = (\{.*?\});", re.DOTALL)
         match = pattern.search(html_source)
         if match:
             js_block = match.group(1)
             
-            # Find all strings mapped to imageDataService (with or without quotes around the key)
             urls = re.findall(r'imageDataService["\']?\s*:\s*["\']([^"\']+)["\']', js_block)
-            
-            # Fallback just in case Idealista changes the key name but keeps the URL structure
             if not urls:
                 urls = re.findall(r'["\']?(https://img\d\.idealista\.it/[^"\']+(?:jpg|webp))["\']?', js_block)
             
-            # Deduplicate the list while preserving order
             clean_urls =[]
             for u in urls:
                 if u not in clean_urls:
@@ -128,6 +166,7 @@ def extract_deep_details(html_source):
     except Exception as e:
         print(f"      ⚠️ Deep parse error: {e}")
     return details
+
 # --- MAIN ENGINE ---
 
 def run_system(urls, scenario_name, deep_scrape=False):
@@ -190,13 +229,29 @@ def run_system(urls, scenario_name, deep_scrape=False):
                     for item in page_data_list:
                         print(f"   🔎 Deep Scrape: {item['id']}")
                         sb.open(item['url'])
-                        time.sleep(random.uniform(5, 8))
+                        time.sleep(random.uniform(4, 7))
+                        
+                        # Stealthily click the "See Phone" button using JS to avoid mouse-tracking bots
+                        try:
+                            if sb.is_element_present(".see-phones-btn"):
+                                sb.execute_script("document.querySelector('.see-phones-btn').click();")
+                                time.sleep(random.uniform(1.5, 2.5)) # Wait for AJAX phone number to load
+                        except:
+                            pass
                         
                         deep_html = sb.get_page_source()
                         deep_info = extract_deep_details(deep_html)
                         
+                        # Apply deep details to the item
                         item['description'] = deep_info['full_description']
                         item['all_features'] = deep_info['all_features']
+                        item['address'] = deep_info['address']
+                        item['advertiser_type'] = deep_info['advertiser_type']
+                        item['advertiser_name'] = deep_info['advertiser_name']
+                        item['last_updated'] = deep_info['last_updated']
+                        item['latitude'] = deep_info['latitude']
+                        item['longitude'] = deep_info['longitude']
+                        item['phone'] = deep_info['phone']
                         
                         if deep_info['image_urls']:
                             item['images_folder'] = download_listing_images(
@@ -239,7 +294,7 @@ def main():
     
     if conf.get('provinces') == 'all':
         with open("provinces.txt", "r") as f:
-            prov_list =[l.strip().lower() for l in f if l.strip()]
+            prov_list = [l.strip().lower() for l in f if l.strip()]
     else:
         prov_list = conf.get('provinces', [])
 
