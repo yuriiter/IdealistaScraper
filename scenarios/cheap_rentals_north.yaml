@@ -1,0 +1,10 @@
+name: "Cheap rentals in Northern Italy"
+transaction_type: "rent"
+provinces:
+  - milano
+  - torino
+  - genova
+  - bologna
+# Simply copy-paste whatever Idealista puts after the province name!
+url_filters: "con-prezzo-massimo_800,dimensione_minima_60/"
+deep_scrape: true

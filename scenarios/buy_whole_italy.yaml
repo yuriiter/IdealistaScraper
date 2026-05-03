@@ -1,0 +1,5 @@
+name: "Buy houses across all of Italy under 150k"
+transaction_type: "buy"
+provinces: "all"
+url_filters: "con-prezzo_14000,prezzo-min_8000,nuova-costruzione,buono-stato,aste_no,senza-inquilini"
+deep_scrape: false
