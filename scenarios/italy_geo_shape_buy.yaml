@@ -1,0 +1,7 @@
+name: "Buy houses in custom drawn area (geo shape)"
+transaction_type: "buy"
+# Idealista geo shape (polygon) query value, copied verbatim from the URL after "?shape=".
+# Keep it wrapped in single quotes so %, @, backticks etc. stay literal.
+shape: '%28%28qun%7BFgr%7ClAoarDsjtJ%60%7By%40ezcBar%40ezjE%7C%7Cf%40sqG%7C%60g%40rwg%40nlEhdPvmM_%7BKfe_%40g%7EvAvel%40ownCv%7ByAyb%60EvruAsoaAdb_AtqGvaVrqG%7D%7D_%40%7Cp_Bqhp%40%7EzK_%60Q%7CzK%3F%7CxeAav_%40roaAylJr_Nv%60%5Eh%60%5DznfBfbjAzcQsmTlrEsia%40vb%5Bijp%40rd%5Bg%60%5DjpuAkvI%60vTtqGot%40fxv%40rjGra%7B%40zaS%7ElEdnVucA%60%7BYihCbeS%7EzKz%7DY%7Cd_%40%60cIhrVbwE%7ElEzl%5D%7EzK%7CmG%7EvX%3F%7Cd_%40gu%40%7Cre%40ymG%7EhRsjX%7ElEe_ZsqGwqVkhCwmL%7DvXczTumTce%5Dt_NqbX_mEot%40sia%40auEidPevh%40rqGuqm%40hvIqpYhdPcfQt_Niqp%40h%60%5Dmdh%40r_N%3F%7Ed_%40rs%40h%60%5DkxMf%60%5DicLt_Ni%60Q%7Cd_%40%7Bja%40ihC%7D%7DPhhC%7BtMtqG%7DwH%7EhRblJf%60%5DuoE%7Ere%40ttMrwg%40o%60L%7ChRc%60LidPcs%40%7DzKmcGidPgcGkhCccGjhC%60%7BCr%7BZ%7Er%40hdPn_Lr%7BZrwHhvI%3F%7EvXadTrcAckJivIurM%7DhR%7Dr%40u_Nmjl%40%7Ed_%40%7BwP%7ChRnaGhnc%40cpM%7C%60l%40%7EtHh%7Ci%40sue%40ff%7D%40%29%29'
+url_filters: "con-prezzo_20000,prezzo-min_5000,nuova-costruzione,buono-stato,aste_no,senza-inquilini"
+deep_scrape: false

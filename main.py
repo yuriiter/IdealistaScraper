@@ -281,6 +281,30 @@ def run_system(urls, scenario_name, deep_scrape=False):
 
 # --- CLI & SETUP ---
 
+def build_search_urls(conf):
+    tx_path = TRANSACTION_MAP.get(conf.get('transaction_type', 'buy'), "vendita-case")
+    filters = conf.get("url_filters", "").strip("/")
+    filter_segment = f"{filters}/" if filters else ""
+
+    # 1. Explicit full search URL override (pagination is still handled automatically)
+    if conf.get('search_url'):
+        return [conf['search_url']]
+
+    # 2. Geo-shape based search (custom drawn area / polygon)
+    if conf.get('shape'):
+        shape = conf['shape'].strip()
+        return [f"https://www.idealista.it/aree/{tx_path}/{filter_segment}?shape={shape}"]
+
+    # 3. Province based search
+    if conf.get('provinces') == 'all':
+        with open("provinces.txt", "r") as f:
+            prov_list = [l.strip().lower() for l in f if l.strip()]
+    else:
+        prov_list = conf.get('provinces', [])
+
+    return [f"https://www.idealista.it/{tx_path}/{p}-provincia/{filter_segment}" for p in prov_list]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config", required=True)
@@ -288,19 +312,10 @@ def main():
 
     with open(args.config, "r") as f:
         conf = yaml.safe_load(f)
-    
-    tx_path = TRANSACTION_MAP.get(conf.get('transaction_type', 'buy'), "vendita-case")
-    filters = conf.get("url_filters", "").strip("/")
-    
-    if conf.get('provinces') == 'all':
-        with open("provinces.txt", "r") as f:
-            prov_list = [l.strip().lower() for l in f if l.strip()]
-    else:
-        prov_list = conf.get('provinces', [])
 
-    urls =[f"https://www.idealista.it/{tx_path}/{p}-provincia/{filters}/" for p in prov_list]
+    urls = build_search_urls(conf)
     scenario_filename = os.path.splitext(os.path.basename(args.config))[0]
-    
+
     run_system(urls, scenario_filename, deep_scrape=conf.get('deep_scrape', False))
 
 if __name__ == "__main__":
